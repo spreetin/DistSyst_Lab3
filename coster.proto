@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+service Wagon {
+    rpc Board(Boarding) returns (Ack);
+    rpc Depart(Departure) returns (Ack);
+}
+
+service RollerCoaster {
+    rpc Subscribe(Subscription) returns (Ack);
+    rpc Unsubscribe(Subscription) returns (Ack);
+    rpc Notify(Notification) returns (Ack);
+    rpc Disembark(Disembark_) returns (Ack);
+}
+
+message Boarding {
+    string topic = 1;
+    string _id = 2;
+}
+
+message Departure {
+    string topic = 1;
+    string _id = 2;
+}
+
+message Disembark_ {
+    string topic = 1;
+    string _id = 2;
+}
+
+message Subscription {
+    string topic = 1;
+    string _id = 2;
+}
+
+message Notification {
+    string topic = 1;
+    string message = 2;
+}
+
+message Ack {
+  bool value = 1;
+}
