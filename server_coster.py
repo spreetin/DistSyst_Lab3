@@ -8,6 +8,7 @@ class RollerCoasterServer(coster_pb2_grpc.RollerCoasterServicer):
         self.passenger_queue = asyncio.Queue()
         self.wagon_queue = asyncio.Queue()
         self.semaphore = asyncio.Semaphore(1)
+        self.seats_per_wagon = 4
 
     async def Subscribe(self, request, context):
         async with self.semaphore:
@@ -35,40 +36,43 @@ class RollerCoasterServer(coster_pb2_grpc.RollerCoasterServicer):
         async with self.semaphore:
             print(f"{request._id} is disembarking from {request.topic}")
         return coster_pb2.Ack(value=True)
-
+    
+    # Maybe change to event based instead
     async def handle_boarding_and_departure(self):
         while True:
             async with self.semaphore:
-                wagon_id = await self.wagon_queue.get()
-                passengers = []
-                # Each wagon has 4 seats
-                for _ in range(4):
-                    passenger_id = await self.passenger_queue.get()
-                    passengers.append(passenger_id)
-                    await asyncio.sleep(0.1)
+                if not self.wagon_queue.empty() and self.passenger_queue.qsize() >= self.seats_per_wagon:
+                    wagon_id = await self.wagon_queue.get()
+                    passengers = []
 
-                print(f"{wagon_id} departing with: {passengers}")
-                # Simulate ride duration
-                await asyncio.sleep(5) 
+                    for _ in range(self.seats_per_wagon):
+                        passenger_id = await self.passenger_queue.get()
+                        passengers.append(passenger_id)
 
-                for passenger_id in passengers:
-                    response = await self.Disembark(coster_pb2.Disembark_(topic="disembarking", _id=passenger_id))
-                    if response.value:
-                        print(f"Passenger {passenger_id} disembarked.")
-                    else:
-                        print(f"Failed to disembark passenger {passenger_id}.")
+                    print(f"Wagon {wagon_id} departing with passengers: {passengers}")
+                    await asyncio.sleep(5)
 
-                print(f"{wagon_id} ride completed.")
+                    for passenger_id in passengers:
+                        response = await self.Disembark(coster_pb2.Disembark_(topic="disembarking", _id=passenger_id))
+                        if response.value:
+                            print(f"Passenger {passenger_id} disembarked.")
+                        else:
+                            print(f"Failed to disembark {passenger_id}.")
+
+                    print(f"Wagon {wagon_id} ride completed.")
+                else:
+                    await asyncio.sleep(1) 
 
     async def Depart(self, request, context):
         async with self.semaphore:
             await self.wagon_queue.put(request._id)
-            print(f"{request._id} ready to depart {request.topic}")
+            print(f"Wagon {request._id} ready to depart for {request.topic}")
         return coster_pb2.Ack(value=True)
 
 async def listen() -> None:
     server = grpc.aio.server()
-    coster_pb2_grpc.add_RollerCoasterServicer_to_server(RollerCoasterServer(), server)
+    roller_coaster_server = RollerCoasterServer()
+    coster_pb2_grpc.add_RollerCoasterServicer_to_server(roller_coaster_server, server)
     listen_addr = '[::]:54321'
     server.add_insecure_port(listen_addr)
     await server.start()
