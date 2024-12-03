@@ -4,83 +4,69 @@ import coster_pb2_grpc
 import coster_pb2
 
 server_address = "localhost:54321"
-wagon_addresses = ["192.168.1.73:54322", "192.168.1.57:54323"]
+wagon_addresses = ["192.168.1.57:54322", "192.168.1.73:54323"]
 
 class Client:
-    def __init__(self, server_address):
+    def __init__(self, server_address, wagon_addresses):
         self.server_address = server_address
-        self.channel = grpc.aio.insecure_channel(server_address)
-        self.stub = coster_pb2_grpc.RollerCoasterStub(self.channel)
-        self.seats_per_wagon = 4
-        self.passenger_count = {wagon_addresses[0]: 0, wagon_addresses[1]: 0}
+        self.wagon_addresses = wagon_addresses
+        self.current_wagon_index = 0
 
     async def subscribe(self, passenger_id):
-        try:
-            response = await self.stub.Subscribe(coster_pb2.Subscription(topic="boarding", _id=passenger_id))
-            if response.value:
-                print(f"{passenger_id} subscribed successfully.")
-            else:
-                print(f"{passenger_id} failed to subscribe.")
-        except Exception as e:
-            print(f"{passenger_id} Error subscribing, error type: {e}")
+        async with grpc.aio.insecure_channel(self.server_address) as channel:
+            stub = coster_pb2_grpc.RollerCoasterStub(channel)
+            try:
+                response = await stub.Subscribe(coster_pb2.Subscription(topic="boarding", _id=passenger_id))
+                if response.value:
+                    print(f"{passenger_id} subscribed successfully.")
+                else:
+                    print(f"{passenger_id} failed to subscribe.")
+            except Exception as e:
+                print(f"{passenger_id} Error subscribing, error type: {e}")
 
     async def unsubscribe(self, passenger_id):
-        try:
-            response = await self.stub.Unsubscribe(coster_pb2.Subscription(topic="boarding", _id=passenger_id))
-            if response.value:
-                print(f"{passenger_id} unsubscribed successfully.")
-            else:
-                print(f"{passenger_id} failed to unsubscribe.")
-        except Exception as e:
-            print(f"{passenger_id} Error unsubscribing, error type: {e}")
+        async with grpc.aio.insecure_channel(self.server_address) as channel:
+            stub = coster_pb2_grpc.RollerCoasterStub(channel)
+            try:
+                response = await stub.Unsubscribe(coster_pb2.Subscription(topic="boarding", _id=passenger_id))
+                if response.value:
+                    print(f"{passenger_id} unsubscribed successfully.")
+                else:
+                    print(f"{passenger_id} failed to unsubscribe.")
+            except Exception as e:
+                print(f"{passenger_id} Error unsubscribing, error type: {e}")
 
     async def i_am_boarding(self, passenger_id):
-        try:
-            wagon_address = self.select_wagon()
+        while True:
+            wagon_address = self.wagon_addresses[self.current_wagon_index]
             async with grpc.aio.insecure_channel(wagon_address) as channel:
                 wagon_stub = coster_pb2_grpc.WagonStub(channel)
-                response = await wagon_stub.Board(coster_pb2.Boarding(topic="boarding", _id=passenger_id))
-                if response.value:
-                    self.passenger_count[wagon_address] += 1
-                    print(f"{passenger_id} boarded wagon at {wagon_address} successfully.")
-                    if self.passenger_count[wagon_address] == self.seats_per_wagon:
-                        await self.i_am_departing(wagon_address, f"wagon_{wagon_addresses.index(wagon_address) + 1}")
-                        self.passenger_count[wagon_address] = 0
-                else:
-                    print(f"{passenger_id} failed to board.")
-        except Exception as e:
-            print(f"{passenger_id} Error boarding, error type: {e}")
-
-    async def i_am_departing(self, wagon_address, wagon_id):
-        try:
-            async with grpc.aio.insecure_channel(wagon_address) as channel:
-                wagon_stub = coster_pb2_grpc.WagonStub(channel)
-                response = await wagon_stub.Depart(coster_pb2.Departure(topic="departure", _id=wagon_id))
-                if response.value:
-                    print(f"Wagon {wagon_id} at {wagon_address} departed successfully.")
-                else:
-                    print(f"Wagon {wagon_id} at {wagon_address} failed to depart.")
-        except Exception as e:
-            print(f"Wagon {wagon_id} at {wagon_address} Error departing, error type: {e}")
+                try:
+                    response = await wagon_stub.Board(coster_pb2.Boarding(topic="boarding", _id=passenger_id))
+                    if response.value:
+                        print(f"{passenger_id} boarded wagon at {wagon_address} successfully.")
+                        break
+                    else:
+                        print(f"{wagon_address} is full, switching to the next wagon.")
+                        self.current_wagon_index = (self.current_wagon_index + 1) % len(self.wagon_addresses)
+                except Exception as e:
+                    print(f"{passenger_id} Error boarding, error type: {e}")
+                    break
 
     async def i_am_disembarking(self, passenger_id):
-        try:
-            response = await self.stub.Disembark(coster_pb2.Disembark_(topic="disembarking", _id=passenger_id))
-            if response.value:
-                print(f"{passenger_id} disembarked successfully.")
-            else:
-                print(f"{passenger_id} failed to disembark.")
-        except Exception as e:
-            print(f"{passenger_id} Error disembarking, error type: {e}")
-
-    def select_wagon(self):
-        if self.passenger_count[wagon_addresses[0]] <= self.passenger_count[wagon_addresses[1]]:
-            return wagon_addresses[0]
-        else:
-            return wagon_addresses[1]
+        async with grpc.aio.insecure_channel(self.server_address) as channel:
+            stub = coster_pb2_grpc.RollerCoasterStub(channel)
+            try:
+                response = await stub.Disembark(coster_pb2.Disembark_(topic="disembarking", _id=passenger_id))
+                if response.value:
+                    print(f"{passenger_id} disembarked successfully.")
+                else:
+                    print(f"{passenger_id} failed to disembark.")
+            except Exception as e:
+                print(f"{passenger_id} Error disembarking, error type: {e}")
 
 async def main():
-    passenger_client = Client(server_address)
+    passenger_client = Client(server_address, wagon_addresses)
 
     while True:
         for num in range(1, 10):
@@ -90,7 +76,7 @@ async def main():
             await passenger_client.i_am_boarding(passenger_id)
             await asyncio.sleep(1)
 
-        await asyncio.sleep(5)
+        await asyncio.sleep(5)  # Simulate ride duration
 
         for num in range(1, 10):
             passenger_id = f"passenger_{num}"
@@ -101,4 +87,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
