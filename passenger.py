@@ -48,7 +48,8 @@ class Client:
                         break
                     else:
                         print(f"{wagon_address} is full, switching to the next wagon.")
-                        self.current_wagon_index = (self.current_wagon_index + 1) % len(self.wagon_addresses)
+                        if self.current_wagon_index == 0: self.current_wagon_index = 1
+                        else: self.current_wagon_index = 0
                 except Exception as e:
                     print(f"{passenger_id} Error boarding, error type: {e}")
                     break
