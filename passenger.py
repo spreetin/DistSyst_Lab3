@@ -4,7 +4,7 @@ import coster_pb2_grpc
 import coster_pb2
 
 server_address = "localhost:54321"
-wagon_addresses = ["192.168.1.57:54322", "192.168.1.73:54323"]
+wagon_addresses = ["0.0.0.0:54322", "0.0.0.00:54323"] #"192.168.1.57:54322", "192.168.1.73:54323"
 
 class Client:
     def __init__(self, server_address, wagon_addresses):
@@ -37,7 +37,8 @@ class Client:
                 print(f"{passenger_id} Error unsubscribing, error type: {e}")
 
     async def i_am_boarding(self, passenger_id):
-        while True:
+        attempts = 0
+        while attempts < len(self.wagon_addresses):
             wagon_address = self.wagon_addresses[self.current_wagon_index]
             async with grpc.aio.insecure_channel(wagon_address) as channel:
                 wagon_stub = coster_pb2_grpc.WagonStub(channel)
@@ -45,14 +46,15 @@ class Client:
                     response = await wagon_stub.Board(coster_pb2.Boarding(topic="boarding", _id=passenger_id))
                     if response.value:
                         print(f"{passenger_id} boarded wagon at {wagon_address} successfully.")
-                        break
+                        return
                     else:
                         print(f"{wagon_address} is full, switching to the next wagon.")
-                        if self.current_wagon_index == 0: self.current_wagon_index = 1
-                        else: self.current_wagon_index = 0
+                        self.current_wagon_index = (self.current_wagon_index + 1) % len(self.wagon_addresses)
+                        attempts += 1
                 except Exception as e:
                     print(f"{passenger_id} Error boarding, error type: {e}")
                     break
+        print(f"All wagons are full, passenger {passenger_id} cannot board at this time.")
 
     async def i_am_disembarking(self, passenger_id):
         async with grpc.aio.insecure_channel(self.server_address) as channel:
